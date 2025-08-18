@@ -19,10 +19,24 @@ BatchRenamer is a Windows Forms application for batch renaming files, designed t
 - [.NET 9.0 SDK](https://dotnet.microsoft.com/download) or newer
 
 
+### Build & Run
+
+1. Clone or download this repository.
+2. Open a terminal in the project folder.
+3. Build the project:
+    ```
+    dotnet build
+    ```
+4. Run the app:
+    ```
+    dotnet run
+    ```
+
 ## Usage
 
 1. **Select a file** to use as the template for renaming.
 2. The app will **predict a clean name** and show a preview of all matching files.
 3. **Review the preview** and adjust the template if needed.
 4. Click **Rename** to batch rename all matching files.
+
 
