@@ -1,6 +1,6 @@
 # BatchRenamer
 
-Tiny Windows utility for cleaning and batch-renaming messy filenames — perfect for anime episodes, TV series, image dumps, and other cluttered downloads.
+Tiny Windows utility for cleaning and batch-renaming messy filenames. Perfect for anime episodes, TV series, image dumps, and other cluttered downloads.
 Predicts a clean base title, finds related files, previews the result, and applies the rename in one click.
 
 ## Features
@@ -75,3 +75,4 @@ dotnet publish -c Release -r win-x64 --self-contained true
 
 **License**
 MIT
+
