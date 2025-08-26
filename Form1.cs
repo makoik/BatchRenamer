@@ -4,7 +4,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
-using Microsoft.Win32; // Add at the top
+using Microsoft.Win32;
+
 
 namespace BatchRenamer
 {
@@ -15,15 +16,22 @@ namespace BatchRenamer
         private TextBox txtOriginalName;
         private TextBox txtNewName;
         private Button btnSelectFile;
+        private Button btnSelectFolder;
         private Button btnPreview;
         private Button btnRename;
+        private Button btnAddAll;
         private ListBox lstPreview;
         private Label lblStatus;
+        private ToolTip toolTip;
+        private CheckBox aggressiveMode;
+        private Label aggressiveModeLabel;
 
         private string selectedFilePath = "";
         private List<FileRenameOperation> renameOperations = new List<FileRenameOperation>();
 
         private ThemeMode currentTheme = ThemeMode.System;
+
+        private bool isSingleFileMode = true;
 
         public Form1()
         {
@@ -36,10 +44,19 @@ namespace BatchRenamer
             lstPreview.Items.Add("Welcome to Batch File Renamer!");
             lstPreview.Items.Add("");
             lstPreview.Items.Add("Getting started:");
-            lstPreview.Items.Add("1. Click 'Browse...' to select a file");
-            lstPreview.Items.Add("2. Edit the filename in the second field");
-            lstPreview.Items.Add("3. Click 'Preview' to see what will be renamed");
-            lstPreview.Items.Add("4. Click 'Apply Rename' to execute the changes");
+            lstPreview.Items.Add("1. Choose either Single Files Mode (default) or Folder Mode using the 📁 button");
+            lstPreview.Items.Add("2. Click 'Select File' or 'Select Folder' depending on the mode");
+            lstPreview.Items.Add("3. Edit the filename in the second field");
+            lstPreview.Items.Add("4. Click 'Preview' to see what will be renamed");
+            lstPreview.Items.Add("5. Click 'Apply Rename' to execute the changes");
+            lstPreview.Items.Add("");
+            lstPreview.Items.Add("Tips:");
+            lstPreview.Items.Add("- Use aggressive mode to match files of all types, not just the same extension");
+            lstPreview.Items.Add("- Use the ⚙ button to change themes");
+            lstPreview.Items.Add("");
+            lstPreview.Items.Add("To rename multiple randomly named files:");
+            lstPreview.Items.Add("1. Select a file in Single Files mode, add your desired name for the files");
+            lstPreview.Items.Add("2. Press Preview, and then Add All (shows up next to Preview button)");
 
             ApplySystemTheme();
         }
@@ -48,8 +65,10 @@ namespace BatchRenamer
         {
             this.SuspendLayout();
 
+            toolTip = new ToolTip();
+
             // Form settings
-            this.Text = "Batch File Renamer - Beta";
+            this.Text = "Batch File Renamer";
             this.Size = new System.Drawing.Size(700, 500);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
@@ -95,6 +114,16 @@ namespace BatchRenamer
             btnPreview.Click += BtnPreview_Click;
             this.Controls.Add(btnPreview);
 
+            btnAddAll = new Button();
+            btnAddAll.Text = "Add All";
+            btnAddAll.Location = new System.Drawing.Point(610, 94);
+            btnAddAll.Size = new System.Drawing.Size(80, 25);
+            btnAddAll.Click += btnAddAll_Click;
+            btnAddAll.Visible = false; // Initially disabled
+            btnAddAll.BackColor = System.Drawing.Color.FromArgb(225, 165, 0);
+            toolTip.SetToolTip(btnAddAll, "Add all files with matching extension in the folder to the rename list");
+            this.Controls.Add(btnAddAll);
+
             // Preview list
             var lblPreview = new Label();
             lblPreview.Text = "Preview Changes:";
@@ -120,19 +149,280 @@ namespace BatchRenamer
             // Status label
             lblStatus = new Label();
             lblStatus.Location = new System.Drawing.Point(130, 425);
-            lblStatus.Size = new System.Drawing.Size(500, 23);
+            lblStatus.Size = new System.Drawing.Size(140, 23);
             lblStatus.Text = "Select a file to begin...";
             this.Controls.Add(lblStatus);
 
             // Settings button
             var btnSettings = new Button();
             btnSettings.Text = "⚙";
-            btnSettings.Location = new System.Drawing.Point(650, 10); // Top right
+            btnSettings.Location = new System.Drawing.Point(650, 10);
             btnSettings.Size = new System.Drawing.Size(40, 30);
             btnSettings.Click += BtnSettings_Click;
             this.Controls.Add(btnSettings);
 
+            // Folder Mode toggle button
+            var btnFolderModeToggle = new Button();
+            btnFolderModeToggle.Text = "📁";
+            btnFolderModeToggle.Location = new System.Drawing.Point(650, 50);
+            btnFolderModeToggle.Size = new System.Drawing.Size(40, 30);
+            btnFolderModeToggle.FlatStyle = System.Windows.Forms.FlatStyle.Flat;
+            btnFolderModeToggle.BackColor = SystemColors.Control;
+            btnFolderModeToggle.Click += BtnFolderModeToggle_Click;
+            btnFolderModeToggle.Font = new System.Drawing.Font("Segoe UI Emoji", 14);
+            this.Controls.Add(btnFolderModeToggle);
+
+            // Aggressive mode
+            aggressiveMode = new CheckBox();
+            aggressiveMode.Text = "Aggressive Mode";
+            aggressiveMode.Location = new System.Drawing.Point(560, 127);
+            aggressiveMode.Size = new System.Drawing.Size(120, 24);
+            aggressiveMode.Checked = false;
+            toolTip.SetToolTip(aggressiveMode,
+                "When enabled, matches files of all types, not just the same extension");
+            aggressiveMode.CheckedChanged += AggressiveModeToggle;
+            this.Controls.Add(aggressiveMode);
+
+            // Aggressive mode label
+            aggressiveModeLabel = new Label();
+            aggressiveModeLabel.Location = new System.Drawing.Point(520, 425);
+            aggressiveModeLabel.Size = new System.Drawing.Size(150, 24);
+            this.Controls.Add(aggressiveModeLabel);
+
+            // Tooltip for folder mode
+            toolTip.SetToolTip(btnFolderModeToggle, "Toggle Folder Mode");
+
+            // Add folder select button (hidden by default, shown in folder mode)
+            var btnSelectFolder = new Button();
+            btnSelectFolder.Text = "Select Folder";
+            btnSelectFolder.Location = new System.Drawing.Point(520, 64);
+            btnSelectFolder.Size = new System.Drawing.Size(85, 25);
+            btnSelectFolder.Click += BtnSelectFolder_Click;
+            btnSelectFolder.Visible = false; // Only visible in folder mode
+            this.Controls.Add(btnSelectFolder);
+
+            // Store reference for toggling visibility
+            this.btnSelectFolder = btnSelectFolder;
+
             this.ResumeLayout(false);
+        }
+
+        private void EnsureUniqueFilenames(List<FileRenameOperation> operations)
+        {
+            var nameCount = new Dictionary<string, int>();
+            
+            foreach (var operation in operations)
+            {
+                string baseName = Path.GetFileNameWithoutExtension(operation.NewName);
+                string extension = Path.GetExtension(operation.NewName);
+                string directory = Path.GetDirectoryName(operation.NewPath);
+                
+                if (nameCount.ContainsKey(operation.NewName.ToLower()))
+                {
+                    nameCount[operation.NewName.ToLower()]++;
+                    string uniqueName = $"{baseName}_{nameCount[operation.NewName.ToLower()]:D2}{extension}";
+                    operation.NewName = uniqueName;
+                    operation.NewPath = Path.Combine(directory, uniqueName);
+                }
+                else
+                {
+                    nameCount[operation.NewName.ToLower()] = 1;
+                }
+            }
+        }
+
+        private string SanitizeFilename(string filename)
+        {
+            if (string.IsNullOrWhiteSpace(filename))
+                return filename;
+            
+            // Remove invalid characters
+            char[] invalidChars = Path.GetInvalidFileNameChars();
+            string sanitized = filename;
+            
+            foreach (char c in invalidChars)
+            {
+                sanitized = sanitized.Replace(c, '_');
+            }
+            
+            // Remove problematic characters that Windows doesn't like
+            sanitized = sanitized.Replace(":", "_");
+            sanitized = sanitized.Replace("*", "_");
+            sanitized = sanitized.Replace("?", "_");
+            sanitized = sanitized.Replace("\"", "_");
+            sanitized = sanitized.Replace("<", "_");
+            sanitized = sanitized.Replace(">", "_");
+            sanitized = sanitized.Replace("|", "_");
+            
+            // Trim whitespace and dots from the end (Windows doesn't like this)
+            sanitized = sanitized.TrimEnd(' ', '.');
+            
+            // Ensure it's not empty
+            if (string.IsNullOrWhiteSpace(sanitized))
+                sanitized = "renamed_file";
+            
+            return sanitized;
+        }
+
+        private void btnAddAll_Click(object sender, EventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(selectedFilePath))
+            {
+                MessageBox.Show("Please select a file first.", "No File Selected", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
+            }
+
+            string directory = Path.GetDirectoryName(selectedFilePath);
+            string selectedExtension = Path.GetExtension(selectedFilePath).ToLower();
+
+            var associatedExtensions = GetAssociatedExtensions(selectedExtension);
+
+            bool includeAssociated = false;
+            if (associatedExtensions.Count > 1)
+            {
+                string extensionList = string.Join(", ", associatedExtensions.Select(ext => ext.ToUpper()));
+                var result = MessageBox.Show(
+                    $"Would you like to include associated file types?\n\nSelected: {selectedExtension.ToUpper()}\nAssociated types: {extensionList}\n\nClick Yes to include all associated types, or No to use only {selectedExtension.ToUpper()}.",
+                    "Include Associated File Types?",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+
+                includeAssociated = (result == DialogResult.Yes);
+            }
+
+            try
+            {
+                btnAddAll.Enabled = false;
+                btnAddAll.Text = "Loading...";
+                lblStatus.Text = "🔍 Adding all matching files...";
+                lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
+                Application.DoEvents();
+
+                var allFiles = Directory.GetFiles(directory);
+                var targetExtensions = includeAssociated
+                    ? associatedExtensions
+                    : new List<string> { selectedExtension };
+
+                var matchingFiles = allFiles
+                    .Where(f => targetExtensions.Contains(Path.GetExtension(f).ToLower()))
+                    .ToList();
+
+                matchingFiles = matchingFiles.OrderBy(f => Path.GetFileName(f)).ToList();
+
+                renameOperations.Clear();
+                int counter = 1;
+
+                foreach (var file in matchingFiles)
+                {
+                    string extension = Path.GetExtension(file);
+                    string newName = $"{txtNewName.Text.Trim()} - {counter:D2}";
+                    string newFileName = newName + extension;
+
+                    renameOperations.Add(new FileRenameOperation
+                    {
+                        OriginalPath = file,
+                        OriginalName = Path.GetFileName(file),
+                        NewName = newFileName,
+                        NewPath = Path.Combine(directory, newFileName)
+                    });
+
+                    counter++;
+                }
+
+                foreach (var operation in renameOperations)
+                {
+                    string baseName = Path.GetFileNameWithoutExtension(operation.NewName);
+                    string extension = Path.GetExtension(operation.NewName);
+                    string sanitizedBaseName = SanitizeFilename(baseName);
+                    
+                    if (sanitizedBaseName != baseName)
+                    {
+                        operation.NewName = sanitizedBaseName + extension;
+                        operation.NewPath = Path.Combine(Path.GetDirectoryName(operation.NewPath), operation.NewName);
+                    }
+                }
+
+                EnsureUniqueFilenames(renameOperations);
+
+                DisplayPreview();
+                btnRename.Enabled = renameOperations.Count > 0;
+
+                if (renameOperations.Count > 0)
+                {
+                    lblStatus.Text = $"✓ Added {renameOperations.Count} files ({targetExtensions.Count} extension types)";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                }
+                else
+                {
+                    lblStatus.Text = "⚠ No matching files found";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error adding files:\n{ex.Message}", "Add Files Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                lblStatus.Text = "❌ Error occurred while adding files";
+                lblStatus.ForeColor = System.Drawing.Color.FromArgb(220, 53, 69);
+            }
+            finally
+            {
+                btnAddAll.Enabled = true;
+                btnAddAll.Text = "Add All";
+            }
+        }
+
+        private List<string> GetAssociatedExtensions(string extension)
+        {
+            var extensionGroups = new Dictionary<string, List<string>>
+            {
+                // Image formats
+                [".jpg"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".jpeg"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".png"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".bmp"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".gif"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".tiff"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+                [".webp"] = new List<string> { ".jpg", ".jpeg", ".png", ".bmp", ".gif", ".tiff", ".webp" },
+
+                // Video formats
+                [".mp4"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".mkv"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".avi"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".mov"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".wmv"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".flv"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".webm"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+                [".m4v"] = new List<string> { ".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm", ".m4v" },
+
+                // Audio formats
+                [".mp3"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".wav"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".flac"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".aac"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".ogg"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".wma"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+                [".m4a"] = new List<string> { ".mp3", ".wav", ".flac", ".aac", ".ogg", ".wma", ".m4a" },
+
+                // Document formats
+                [".pdf"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+                [".doc"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+                [".docx"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+                [".txt"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+                [".rtf"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+                [".odt"] = new List<string> { ".pdf", ".doc", ".docx", ".txt", ".rtf", ".odt" },
+
+                // Archive formats
+                [".zip"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" },
+                [".rar"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" },
+                [".7z"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" },
+                [".tar"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" },
+                [".gz"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" },
+                [".bz2"] = new List<string> { ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2" }
+            };
+
+            return extensionGroups.ContainsKey(extension.ToLower()) 
+                ? extensionGroups[extension.ToLower()] 
+                : new List<string> { extension };
         }
 
         private string PredictCleanName(string originalFilename)
@@ -171,7 +461,7 @@ namespace BatchRenamer
 
             // Step 4: Clean up spaces and separators
             cleanName = Regex.Replace(cleanName, @"\s+", " ").Trim();
-            
+
             // Step 5: Remove trailing separators
             cleanName = Regex.Replace(cleanName, @"\s*[-_\.]\s*$", "").Trim();
             cleanName = Regex.Replace(cleanName, @"^\s*[-_\.]\s*", "").Trim();
@@ -189,7 +479,7 @@ namespace BatchRenamer
         {
             // Handle nested brackets more carefully
             string result = input;
-            
+
             // Remove content in square brackets (can be nested)
             while (true)
             {
@@ -197,7 +487,7 @@ namespace BatchRenamer
                 result = Regex.Replace(result, @"\[[^\[\]]*\]", " ");
                 if (result == before) break; // No more changes
             }
-            
+
             // Remove content in parentheses (can be nested)  
             while (true)
             {
@@ -205,7 +495,7 @@ namespace BatchRenamer
                 result = Regex.Replace(result, @"\([^\(\)]*\)", " ");
                 if (result == before) break; // No more changes
             }
-            
+
             return Regex.Replace(result, @"\s+", " ").Trim();
         }
 
@@ -214,7 +504,7 @@ namespace BatchRenamer
             // Last resort: try to find the longest meaningful sequence
             // Remove all brackets first
             string clean = RemoveNestedBrackets(filename);
-            
+
             // Split by common separators and find the longest part that looks like a title
             var parts = Regex.Split(clean, @"[\s\-_\.]+")
                 .Where(p => !string.IsNullOrWhiteSpace(p))
@@ -229,10 +519,9 @@ namespace BatchRenamer
                 return string.Join(" ", parts.Take(3)); // Take first 3 meaningful parts
             }
 
-            return filename; // Ultimate fallback
+            return filename;
         }
 
-        // Modify the BtnSelectFile_Click method to use smart prediction:
 
         private void BtnSelectFile_Click(object sender, EventArgs e)
         {
@@ -266,51 +555,86 @@ namespace BatchRenamer
 
                     btnRename.Enabled = false;
                     btnPreview.Enabled = true;
+                    btnAddAll.Visible = false;
+                }
+            }
+        }
+
+        // Add this method to handle folder selection and preview in folder mode:
+        private void BtnSelectFolder_Click(object sender, EventArgs e)
+        {
+            using (var fbd = new FolderBrowserDialog())
+            {
+                fbd.Description = "Select a folder for batch renaming";
+                if (fbd.ShowDialog() == DialogResult.OK)
+                {
+                    string selectedFolder = fbd.SelectedPath;
+                    lblStatus.Text = $"✓ Selected folder: {selectedFolder}";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+
+                    DisplayFolderBatchPreview(selectedFolder);
+                    btnRename.Enabled = false;
+
+                    if (renameOperations.Count > 0)
+                    {
+                        btnRename.Enabled = true;
+                    }
                 }
             }
         }
 
         private void BtnPreview_Click(object sender, EventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(selectedFilePath) || string.IsNullOrWhiteSpace(txtNewName.Text))
+            if (isSingleFileMode)
             {
-                MessageBox.Show("Please select a file and enter a new filename.", "Missing Information", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            try
-            {
-                btnPreview.Enabled = false;
-                btnPreview.Text = "Loading...";
-                lblStatus.Text = "🔍 Scanning for matching files...";
-                lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
-                Application.DoEvents();
-
-                renameOperations = FindAndGenerateRenames();
-                DisplayPreview();
-                btnRename.Enabled = renameOperations.Count > 0;
-
-                if (renameOperations.Count > 0)
+                if (string.IsNullOrWhiteSpace(selectedFilePath) || string.IsNullOrWhiteSpace(txtNewName.Text))
                 {
-                    lblStatus.Text = $"✓ Found {renameOperations.Count} files to rename";
-                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                    MessageBox.Show("Please select a file and enter a new filename.", "Missing Information", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
                 }
-                else
+
+                try
                 {
-                    lblStatus.Text = "⚠ No matching files found";
+                    btnPreview.Enabled = false;
+                    btnPreview.Text = "Loading...";
+                    lblStatus.Text = "🔍 Scanning for matching files...";
                     lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
+                    Application.DoEvents();
+
+                    renameOperations = FindAndGenerateRenames();
+                    DisplayPreview();
+                    btnRename.Enabled = renameOperations.Count > 0;
+
+                    if (renameOperations.Count > 0)
+                    {
+                        lblStatus.Text = $"✓ Found {renameOperations.Count} files to rename";
+                        lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                        btnAddAll.Visible = false;
+                    }
+                    else
+                    {
+                        lblStatus.Text = "⚠ No matching files found";
+                        lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
+                        btnAddAll.Visible = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error generating preview:\n{ex.Message}", "Preview Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    lblStatus.Text = "❌ Error occurred during preview";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(220, 53, 69);
+                    btnAddAll.Visible = false;
+                }
+                finally
+                {
+                    btnPreview.Enabled = true;
+                    btnPreview.Text = "Preview";
                 }
             }
-            catch (Exception ex)
+            else
             {
-                MessageBox.Show($"Error generating preview:\n{ex.Message}", "Preview Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                lblStatus.Text = "❌ Error occurred during preview";
-                lblStatus.ForeColor = System.Drawing.Color.FromArgb(220, 53, 69);
-            }
-            finally
-            {
-                btnPreview.Enabled = true;
-                btnPreview.Text = "Preview";
+                // Folder mode: Preview is handled after folder selection
+                MessageBox.Show("Preview is shown after selecting a folder in Folder Mode.", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
@@ -348,17 +672,34 @@ namespace BatchRenamer
                 });
             }
 
+            foreach (var operation in operations)
+            {
+                string baseName = Path.GetFileNameWithoutExtension(operation.NewName);
+                string extension = Path.GetExtension(operation.NewName);
+                string sanitizedBaseName = SanitizeFilename(baseName);
+                
+                if (sanitizedBaseName != baseName)
+                {
+                    operation.NewName = sanitizedBaseName + extension;
+                    operation.NewPath = Path.Combine(Path.GetDirectoryName(operation.NewPath), operation.NewName);
+                }
+            }
+
+            EnsureUniqueFilenames(operations);
+
             return operations;
         }
+
+        
 
         private List<string> FindMatchingFiles(string[] allFiles, string originalName)
         {
             var matching = new List<string>();
 
-            // Get the extension of the selected file
-            string selectedExtension = Path.GetExtension(selectedFilePath).ToLower();
+            if (string.IsNullOrEmpty(selectedFilePath))
+                return matching;
 
-            // Strategy 1: Extract core pattern from the original file
+            string selectedExtension = Path.GetExtension(selectedFilePath).ToLower();
             string corePattern = ExtractCorePatternAdvanced(originalName);
 
             foreach (var file in allFiles)
@@ -366,11 +707,10 @@ namespace BatchRenamer
                 string fileName = Path.GetFileNameWithoutExtension(file);
                 string ext = Path.GetExtension(file).ToLower();
 
-                // Only include files with the same extension as the selected file
-                if (ext != selectedExtension)
+                // Update checkbox reference name
+                if (!aggressiveMode.Checked && ext != selectedExtension)
                     continue;
 
-                // Check if files share the same core pattern
                 if (SharesCorePatternAdvanced(fileName, corePattern, originalName))
                 {
                     matching.Add(file);
@@ -380,10 +720,12 @@ namespace BatchRenamer
             // If we didn't find enough matches, try a more lenient approach
             if (matching.Count <= 1)
             {
-                matching = FindMatchingFilesLenient(
-                    allFiles.Where(f => Path.GetExtension(f).ToLower() == selectedExtension).ToArray(),
-                    originalName
-                );
+                // Update checkbox reference name
+                var filesToSearch = aggressiveMode.Checked ?
+                    allFiles :
+                    allFiles.Where(f => Path.GetExtension(f).ToLower() == selectedExtension).ToArray();
+
+                matching = FindMatchingFilesLenient(filesToSearch, originalName);
             }
 
             return matching;
@@ -435,7 +777,7 @@ namespace BatchRenamer
             if (ContainsUnicodeCharacters(corePattern) || ContainsUnicodeCharacters(fileCorePattern))
             {
                 // More lenient matching for Unicode content
-                if (CalculateSimilarity(fileCorePattern, corePattern) > 0.6)
+                if (CalculateSimilarity(fileCorePattern, corePattern) > 0.8)
                     return true;
 
                 // Check if one contains the other (useful for Japanese titles)
@@ -445,7 +787,7 @@ namespace BatchRenamer
             else
             {
                 // For ASCII content, use stricter similarity
-                if (CalculateSimilarity(fileCorePattern, corePattern) > 0.7)
+                if (CalculateSimilarity(fileCorePattern, corePattern) > 0.9)
                     return true;
             }
 
@@ -460,10 +802,10 @@ namespace BatchRenamer
         private List<string> FindMatchingFilesLenient(string[] allFiles, string originalName)
         {
             var matching = new List<string>();
-            
+
             // Get the directory of the original file
-            string originalDir = Path.GetDirectoryName(allFiles.FirstOrDefault(f => 
-                Path.GetFileNameWithoutExtension(f).Equals(Path.GetFileNameWithoutExtension(originalName), 
+            string originalDir = Path.GetDirectoryName(allFiles.FirstOrDefault(f =>
+                Path.GetFileNameWithoutExtension(f).Equals(Path.GetFileNameWithoutExtension(originalName),
                 StringComparison.OrdinalIgnoreCase)));
 
             // Strategy: Look for files that have similar bracket patterns or Japanese episode indicators
@@ -648,7 +990,7 @@ namespace BatchRenamer
                 {
                     int num = int.Parse(match.Groups[1].Value);
                     // Skip obvious non-episode numbers (years, resolutions, etc.)
-                    if (num >= 1 && num <= 999 && 
+                    if (num >= 1 && num <= 999 &&
                         num != 720 && num != 1080 && num != 480 && // Skip resolutions
                         (num < 1900 || num > 2030)) // Skip years
                     {
@@ -696,6 +1038,25 @@ namespace BatchRenamer
             }
         }
 
+        private bool IsFileLocked(string filePath)
+        {
+            try
+            {
+                using (var fs = File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    return false;
+                }
+            }
+            catch (IOException)
+            {
+                return true;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return true;
+            }
+        }
+
         private void BtnRename_Click(object sender, EventArgs e)
         {
             if (renameOperations.Count == 0)
@@ -709,6 +1070,7 @@ namespace BatchRenamer
 
             if (result != DialogResult.Yes)
                 return;
+
 
             try
             {
@@ -726,6 +1088,13 @@ namespace BatchRenamer
                 {
                     try
                     {
+                        if (IsFileLocked(operation.OriginalPath))
+                        {
+                            errors.Add($"File in use: {operation.OriginalName}");
+                            failed++;
+                            continue;
+                        }
+
                         if (File.Exists(operation.NewPath))
                         {
                             errors.Add($"Target already exists: {operation.NewName}");
@@ -827,29 +1196,195 @@ namespace BatchRenamer
 
         private void ApplySystemTheme()
         {
-            var theme = Registry.GetValue(
-                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                "AppsUseLightTheme", 1);
-
-            if (theme is int value && value == 0)
+            try
             {
-                // Dark mode
-                this.BackColor = System.Drawing.Color.FromArgb(32, 32, 32);
-                foreach (Control ctrl in this.Controls)
+                var theme = Registry.GetValue(
+                    @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                    "AppsUseLightTheme", 1);
+
+                if (theme is int value && value == 0)
                 {
-                    ctrl.ForeColor = System.Drawing.Color.White;
-                    ctrl.BackColor = System.Drawing.Color.FromArgb(32, 32, 32);
+                    // Dark mode
+                    this.BackColor = System.Drawing.Color.FromArgb(32, 32, 32);
+                    foreach (Control ctrl in this.Controls)
+                    {
+                        ctrl.ForeColor = System.Drawing.Color.White;
+                        ctrl.BackColor = System.Drawing.Color.FromArgb(32, 32, 32);
+                    }
                 }
+                else
+                {
+                    // Light mode
+                    this.BackColor = System.Drawing.SystemColors.Control;
+                    foreach (Control ctrl in this.Controls)
+                    {
+                        ctrl.ForeColor = System.Drawing.Color.Black;
+                        ctrl.BackColor = System.Drawing.SystemColors.Control;
+                    }
+                }
+            }
+            catch
+            {
+                ApplyTheme(ThemeMode.Light); // Fallback to light if registry access fails
+            }
+        }
+
+        // Event handlers for Folder Mode buttons
+        private void BtnFolderModeToggle_Click(object sender, EventArgs e)
+        {
+            isSingleFileMode = !isSingleFileMode;
+            var btn = (Button)sender;
+            
+            // Clear any existing operations when switching modes
+            renameOperations.Clear();
+            selectedFilePath = "";
+            
+            if (isSingleFileMode)
+            {
+                lblStatus.Text = "Single Files Mode enabled.";
+                lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                toolTip.SetToolTip(btn, "Switch to Folder Mode");
+                btnSelectFile.Visible = true;
+                btnSelectFolder.Visible = false;
+                btnRename.Enabled = false;
             }
             else
             {
-                // Light mode
-                this.BackColor = System.Drawing.SystemColors.Control;
-                foreach (Control ctrl in this.Controls)
+                lblStatus.Text = "Folder Mode enabled - Select a folder to begin.";
+                lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                toolTip.SetToolTip(btn, "Switch to Single Files Mode");
+                btnSelectFile.Visible = false;
+                btnSelectFolder.Visible = true;
+                btnSelectFolder.Location = btnSelectFile.Location;
+                btnRename.Enabled = false;
+            }
+            
+
+        }
+
+        // Aggressive mode tooltip handler
+        private void AggressiveModeToggle(object sender, EventArgs e)
+        {
+            if (aggressiveMode.Checked)
+            {
+                toolTip.SetToolTip(aggressiveMode, "Currently ON - Matches files of all types\nUncheck to match only same extension");
+                aggressiveModeLabel.Text = aggressiveModeLabel.Text.TrimEnd() + "Aggressive Mode: ON";
+                aggressiveModeLabel.ForeColor = System.Drawing.Color.FromArgb(255, 70, 0);
+            }
+            else
+            {
+                toolTip.SetToolTip(aggressiveMode, "Currently OFF - Only matches files with same extension\nCheck to match all file types");
+                aggressiveModeLabel.Text = aggressiveModeLabel.Text.Replace("Aggressive Mode ON", "");
+                aggressiveModeLabel.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+            }
+        }
+
+        private void DisplayFolderBatchPreview(string folderPath)
+        {
+            lstPreview.Items.Clear();
+            renameOperations.Clear();
+
+            try
+            {
+                var allFiles = Directory.GetFiles(folderPath);
+                var fileGroups = new Dictionary<string, List<string>>();
+
+                // Group files by predicted name
+                foreach (var file in allFiles)
                 {
-                    ctrl.ForeColor = System.Drawing.Color.Black;
-                    ctrl.BackColor = System.Drawing.SystemColors.Control;
+                    string fileName = Path.GetFileNameWithoutExtension(file);
+                    string predicted = PredictCleanName(fileName);
+
+                    if (!fileGroups.ContainsKey(predicted))
+                        fileGroups[predicted] = new List<string>();
+
+                    fileGroups[predicted].Add(file);
                 }
+
+                // Generate rename operations for groups with multiple files
+                int totalOperations = 0;
+                foreach (var group in fileGroups.Where(g => g.Value.Count > 1))
+                {
+                    string predictedBaseName = group.Key;
+                    var filesInGroup = group.Value.OrderBy(f => Path.GetFileName(f)).ToList();
+                    
+                    int counter = 1;
+                    foreach (var file in filesInGroup)
+                    {
+                        string extension = Path.GetExtension(file);
+                        string newName = $"{predictedBaseName} - {counter:D2}";
+                        string newFileName = SanitizeFilename(newName) + extension;
+
+                        renameOperations.Add(new FileRenameOperation
+                        {
+                            OriginalPath = file,
+                            OriginalName = Path.GetFileName(file),
+                            NewName = newFileName,
+                            NewPath = Path.Combine(folderPath, newFileName)
+                        });
+
+                        counter++;
+                        totalOperations++;
+                    }
+                }
+
+                // Ensure unique filenames across all operations
+                EnsureUniqueFilenames(renameOperations);
+
+                // Display preview
+                if (renameOperations.Count == 0)
+                {
+                    lstPreview.Items.Add("No batch rename groups found in this folder.");
+                    lstPreview.Items.Add("");
+                    lstPreview.Items.Add("Folder Mode looks for files that can be grouped together");
+                    lstPreview.Items.Add("based on similar naming patterns and renames them with");
+                    lstPreview.Items.Add("sequential numbering.");
+                    lstPreview.Items.Add("");
+                    lstPreview.Items.Add("Try using Single Files Mode with 'Add All' for randomly named single files.");
+                    
+                    btnRename.Enabled = false;
+                    lblStatus.Text = "No renameable groups found in folder";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(255, 140, 0);
+                }
+                else
+                {
+                    lstPreview.Items.Add($"Folder Mode Preview: {renameOperations.Count} files in {fileGroups.Count(g => g.Value.Count > 1)} groups");
+                    lstPreview.Items.Add("".PadRight(80, '─'));
+
+                    var groupedOperations = renameOperations
+                        .GroupBy(op => PredictCleanName(Path.GetFileNameWithoutExtension(op.OriginalName)))
+                        .ToList();
+
+                    foreach (var group in groupedOperations)
+                    {
+                        lstPreview.Items.Add($"Group: {group.Key} ({group.Count()} files)");
+                        
+                        foreach (var operation in group.Take(3)) // Show first 3 files in each group
+                        {
+                            lstPreview.Items.Add($"  → {operation.OriginalName}");
+                            lstPreview.Items.Add($"    → {operation.NewName}");
+                        }
+                        
+                        if (group.Count() > 3)
+                        {
+                            lstPreview.Items.Add($"    ... and {group.Count() - 3} more files");
+                        }
+                        
+                        lstPreview.Items.Add("");
+                    }
+
+                    btnRename.Enabled = true;
+                    lblStatus.Text = $"Ready to rename {renameOperations.Count} files in {groupedOperations.Count} groups";
+                    lblStatus.ForeColor = System.Drawing.Color.FromArgb(46, 125, 50);
+                }
+            }
+            catch (Exception ex)
+            {
+                lstPreview.Items.Clear();
+                lstPreview.Items.Add($"Error scanning folder: {ex.Message}");
+                btnRename.Enabled = false;
+                lblStatus.Text = "Error occurred while scanning folder";
+                lblStatus.ForeColor = System.Drawing.Color.FromArgb(220, 53, 69);
             }
         }
     }
